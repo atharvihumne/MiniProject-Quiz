@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="QuizMaster - a simple 10-question quiz with a leaderboard." />
+  <title>QuizMaster</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="root"></div>
+  <noscript>Please enable JavaScript to use QuizMaster.</noscript>
+
+  <!-- React, ReactDOM and Babel (so we can write JSX directly in the browser) -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <script type="text/babel">
+    const { useState, useRef } = React;
+
+    /* ------------------------------------------------------------------
+       QUESTIONS  (answer = index of the correct option, starting at 0)
+    ------------------------------------------------------------------ */
+    const QUESTIONS = [
+      {
+        question: "Which HTML tag is used to link an external CSS file?",
+        options: ["<style>", "<link>", "<script>", "<css>"],
+        answer: 1,
+      },
+      {
+        question: "Which JavaScript keyword declares a block-scoped variable that can be reassigned?",
+        options: ["var", "const", "let", "define"],
+        answer: 2,
+      },
+      {
+        question: "What does CSS stand for?",
+        options: [
+          "Computer Style Sheets",
+          "Cascading Style Sheets",
+          "Creative Style System",
+          "Colorful Style Sheets",
+        ],
+        answer: 1,
+      },
+      {
+        question: "Which React hook is used to store state inside a function component?",
+        options: ["useEffect", "useRef", "useState", "useContext"],
+        answer: 2,
+      },
+      {
+        question: "What is the time complexity of binary search on a sorted array?",
+        options: ["O(n)", "O(log n)", "O(n²)", "O(1)"],
+        answer: 1,
+      },
+      {
+        question: "Which data structure follows the LIFO (Last In, First Out) principle?",
+        options: ["Queue", "Array", "Stack", "Linked list"],
+        answer: 2,
+      },
+      {
+        question: "Which SQL command is used to retrieve data from a table?",
+        options: ["GET", "SELECT", "FETCH", "EXTRACT"],
+        answer: 1,
+      },
+      {
+        question: "What does the HTTP status code 404 mean?",
+        options: ["Server error", "Unauthorized", "Not found", "Request successful"],
+        answer: 2,
+      },
+      {
+        question: "Which of these is NOT a primitive data type in JavaScript?",
+        options: ["String", "Boolean", "Float", "Undefined"],
+        answer: 2,
+      },
+      {
+        question: "Which Git command copies a remote repository onto your computer?",
+        options: ["git push", "git commit", "git init", "git clone"],
+        answer: 3,
+      },
+    ];
+
+    /* ------------------------------------------------------------------
+       HELPERS
+    ------------------------------------------------------------------ */
+    const STORAGE_KEY = "quizmaster_leaderboard_v1";
+    const LETTERS = ["A", "B", "C", "D"];
+
+    function loadBoard() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        const data = raw ? JSON.parse(raw) : [];
+        return Array.isArray(data) ? data : [];
+      } catch (e) {
+        return [];
+      }
+    }
+
+    function saveBoard(list) {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+      } catch (e) {
+        /* storage may be blocked (private mode) - the app still works */
+      }
+    }
+
+    // Higher score first, then faster time, then earlier date
+    function sortBoard(list) {
+      return [...list].sort(
+        (a, b) => b.score - a.score || a.time - b.time || a.date - b.date
+      );
+    }
+
+    function shuffle(array) {
+      const copy = [...array];
+      for (let i = copy.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [copy[i], copy[j]] = [copy[j], copy[i]];
+      }
+      return copy;
+    }
+
+    function formatTime(seconds) {
+      const m = Math.floor(seconds / 60);
+      const s = seconds % 60;
+      return m + ":" + String(s).padStart(2, "0");
+    }
+
+    function formatDate(ms) {
+      return new Date(ms).toLocaleDateString(undefined, {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+      });
+    }
+
+    function getMessage(percent) {
+      if (percent === 100) return "Perfect score! Outstanding! 🏆";
+      if (percent >= 80) return "Excellent work! 🎉";
+      if (percent >= 60) return "Good job! Keep practising 👍";
+      if (percent >= 40) return "Not bad - a little more revision will help 📚";
+      return "Keep going - you'll do better next time 💪";
+    }
+
+    /* ------------------------------------------------------------------
+       HOME PAGE
+    ------------------------------------------------------------------ */
+    function Home({ onStart, onLeaderboard, defaultName }) {
+      const [name, setName] = useState(defaultName);
+      const [error, setError] = useState("");
+
+      function handleSubmit(e) {
+        e.preventDefault();
+        const trimmed = name.trim();
+        if (trimmed.length < 2) {
+          setError("Please enter a name with at least 2 characters.");
+          return;
+        }
+        if (trimmed.length > 20) {
+          setError("Name must be 20 characters or fewer.");
+          return;
+        }
+        onStart(trimmed);
+      }
+
+      return (
+        <section className="card home">
+          <h1>Welcome to QuizMaster 🧠</h1>
+          <p className="subtitle">
+            Test your knowledge of web development and computer science basics.
+          </p>
+
+          <ul className="rules">
+            <li><strong>{QUESTIONS.length}</strong> multiple-choice questions</li>
+            <li>Pick one answer, then press <strong>Check Answer</strong></li>
+            <li>1 point for every correct answer</li>
+            <li>Beat your friends on the leaderboard!</li>
+          </ul>
+
+          <form onSubmit={handleSubmit} noValidate>
+            <label htmlFor="player-name">Your name</label>
+            <input
+              id="player-name"
+              type="text"
+              value={name}
+              placeholder="e.g. Aarav"
+              maxLength={30}
+              onChange={(e) => { setName(e.target.value); setError(""); }}
+              autoComplete="off"
+            />
+            {error && <p className="error" role="alert">{error}</p>}
+
+            <div className="button-row">
+              <button type="submit" className="btn primary">Start Quiz</button>
+              <button type="button" className="btn secondary" onClick={onLeaderboard}>
+                🏅 Leaderboard
+              </button>
+            </div>
+          </form>
+        </section>
+      );
+    }
+
+    /* ------------------------------------------------------------------
+       QUIZ PAGE
+    ------------------------------------------------------------------ */
+    function Quiz({ questions, playerName, onFinish, onQuit }) {
+      const [index, setIndex] = useState(0);
+      const [selected, setSelected] = useState(null);   // option the user clicked
+      const [checked, setChecked] = useState(false);    // has the answer been checked?
+      const [error, setError] = useState("");
+      const [answers, setAnswers] = useState([]);       // chosen option for each question
+      const startTime = useRef(Date.now());
+
+      const q = questions[index];
+      const isLast = index === questions.length - 1;
+      const progress = ((index + (checked ? 1 : 0)) / questions.length) * 100;
+
+      function choose(i) {
+        if (checked) return;       // locked after checking
+        setSelected(i);
+        setError("");
+      }
+
+      function checkAnswer() {
+        // VALIDATION: an option must be selected
+        if (selected === null) {
+          setError("Please select an answer before checking.");
+          return;
+        }
+        setAnswers([...answers, selected]);
+        setChecked(true);
+      }
+
+      function next() {
+        if (isLast) {
+          const seconds = Math.round((Date.now() - startTime.current) / 1000);
+          onFinish(answers, seconds);
+        } else {
+          setIndex(index + 1);
+          setSelected(null);
+          setChecked(false);
+          setError("");
+        }
+      }
+
+      function quit() {
+        if (window.confirm("Quit the quiz? Your progress will be lost.")) onQuit();
+      }
+
+      function optionClass(i) {
+        let cls = "option";
+        if (!checked && selected === i) cls += " selected";
+        if (checked && i === q.answer) cls += " correct";
+        if (checked && i === selected && i !== q.answer) cls += " wrong";
+        if (checked && i !== q.answer && i !== selected) cls += " dim";
+        return cls;
+      }
+
+      const gotItRight = checked && selected === q.answer;
+
+      return (
+        <section className="card quiz">
+          <div className="quiz-top">
+            <span className="player">👤 {playerName}</span>
+            <span className="counter">
+              Question {index + 1} of {questions.length}
+            </span>
+          </div>
+
+          <div
+            className="progress"
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.round(progress)}
+          >
+            <div className="progress-bar" style={{ width: progress + "%" }} />
+          </div>
+
+          <h2 className="question">{q.question}</h2>
+
+          <div className="options">
+            {q.options.map((opt, i) => (
+              <button
+                key={i}
+                type="button"
+                className={optionClass(i)}
+                onClick={() => choose(i)}
+                disabled={checked}
+                aria-pressed={selected === i}
+              >
+                <span className="letter">{LETTERS[i]}</span>
+                <span className="text">{opt}</span>
+                {checked && i === q.answer && <span className="mark">✓</span>}
+                {checked && i === selected && i !== q.answer && <span className="mark">✗</span>}
+              </button>
+            ))}
+          </div>
+
+          {error && <p className="error" role="alert">{error}</p>}
+
+          {checked && (
+            <p className={"feedback " + (gotItRight ? "good" : "bad")} role="status">
+              {gotItRight
+                ? "Correct! Well done. ✅"
+                : "Incorrect. The right answer is " + LETTERS[q.answer] + ": " + q.options[q.answer]}
+            </p>
+          )}
+
+          <div className="button-row">
+            <button type="button" className="btn ghost" onClick={quit}>Quit</button>
+            {!checked ? (
+              <button type="button" className="btn primary" onClick={checkAnswer}>
+                Check Answer
+              </button>
+            ) : (
+              <button type="button" className="btn primary" onClick={next}>
+                {isLast ? "Finish Quiz" : "Next Question →"}
+              </button>
+            )}
+          </div>
+        </section>
+      );
+    }
+
+    /* ------------------------------------------------------------------
+       RESULT PAGE
+    ------------------------------------------------------------------ */
+    function Result({ result, questions, playerName, onRestart, onLeaderboard, onHome }) {
+      const { score, time, answers, rank } = result;
+      const total = questions.length;
+      const percent = Math.round((score / total) * 100);
+
+      return (
+        <section className="card result">
+          <h1>Quiz Complete!</h1>
+          <p className="subtitle">Well played, {playerName}.</p>
+
+          <div className="score-circle" aria-label={"Score " + score + " out of " + total}>
+            <span className="score-big">{score}</span>
+            <span className="score-small">/ {total}</span>
+          </div>
+
+          <p className="message">{getMessage(percent)}</p>
+
+          <div className="stats">
+            <div><strong>{percent}%</strong><span>Accuracy</span></div>
+            <div><strong>{score}</strong><span>Correct</span></div>
+            <div><strong>{total - score}</strong><span>Wrong</span></div>
+            <div><strong>{formatTime(time)}</strong><span>Time</span></div>
+          </div>
+
+          <p className="rank-note">
+            {rank <= 10
+              ? "🎖️ You are #" + rank + " on the leaderboard!"
+              : "You didn't make the top 10 this time - try again!"}
+          </p>
+
+          <h3>Review your answers</h3>
+          <ol className="review">
+            {questions.map((q, i) => {
+              const ok = answers[i] === q.answer;
+              return (
+                <li key={i} className={ok ? "ok" : "no"}>
+                  <p className="review-q">{q.question}</p>
+                  <p>
+                    Your answer: <strong>{q.options[answers[i]]}</strong> {ok ? "✅" : "❌"}
+                  </p>
+                  {!ok && (
+                    <p>Correct answer: <strong>{q.options[q.answer]}</strong></p>
+                  )}
+                </li>
+              );
+            })}
+          </ol>
+
+          <div className="button-row wrap">
+            <button className="btn primary" onClick={onRestart}>🔁 Restart Quiz</button>
+            <button className="btn secondary" onClick={onLeaderboard}>🏅 Leaderboard</button>
+            <button className="btn ghost" onClick={onHome}>🏠 Home</button>
+          </div>
+        </section>
+      );
+    }
+
+    /* ------------------------------------------------------------------
+       LEADERBOARD PAGE
+    ------------------------------------------------------------------ */
+    function Leaderboard({ board, highlightId, onClear, onStart, onHome }) {
+      const top = sortBoard(board).slice(0, 10);
+      const medals = ["🥇", "🥈", "🥉"];
+
+      function clear() {
+        if (window.confirm("Delete all leaderboard scores? This cannot be undone.")) onClear();
+      }
+
+      return (
+        <section className="card leaderboard">
+          <h1>🏅 Top 10 Leaderboard</h1>
+          <p className="subtitle">Ranked by score, then by fastest time.</p>
+
+          {top.length === 0 ? (
+            <p className="empty">No scores yet. Be the first to play!</p>
+          ) : (
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Rank</th>
+                    <th>Name</th>
+                    <th>Score</th>
+                    <th>Time</th>
+                    <th className="hide-small">Date</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {top.map((e, i) => (
+                    <tr key={e.id} className={e.id === highlightId ? "me" : ""}>
+                      <td>{medals[i] || i + 1}</td>
+                      <td className="name-cell">{e.name}</td>
+                      <td>{e.score}/{e.total}</td>
+                      <td>{formatTime(e.time)}</td>
+                      <td className="hide-small">{formatDate(e.date)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <div className="button-row wrap">
+            <button className="btn primary" onClick={onStart}>▶ Play Quiz</button>
+            <button className="btn ghost" onClick={onHome}>🏠 Home</button>
+            {top.length > 0 && (
+              <button className="btn danger" onClick={clear}>Clear Scores</button>
+            )}
+          </div>
+        </section>
+      );
+    }
+
+    /* ------------------------------------------------------------------
+       MAIN APP
+    ------------------------------------------------------------------ */
+    function App() {
+      const [view, setView] = useState("home");        // home | quiz | result | leaderboard
+      const [playerName, setPlayerName] = useState("");
+      const [questions, setQuestions] = useState([]);
+      const [quizKey, setQuizKey] = useState(0);        // forces a fresh Quiz each attempt
+      const [result, setResult] = useState(null);
+      const [board, setBoard] = useState(loadBoard);
+      const [lastId, setLastId] = useState(null);
+
+      function startQuiz(name) {
+        setPlayerName(name);
+        setQuestions(shuffle(QUESTIONS));
+        setQuizKey((k) => k + 1);
+        setView("quiz");
+      }
+
+      function restartQuiz() {
+        startQuiz(playerName);
+      }
+
+      function finishQuiz(answers, seconds) {
+        const score = answers.filter((a, i) => a === questions[i].answer).length;
+        const entry = {
+          id: Date.now() + "-" + Math.random().toString(36).slice(2, 7),
+          name: playerName,
+          score,
+          total: questions.length,
+          time: seconds,
+          date: Date.now(),
+        };
+        // keep the best 100 entries in storage; the page shows the top 10
+        const updated = sortBoard([...board, entry]).slice(0, 100);
+        const rank = updated.findIndex((e) => e.id === entry.id) + 1 || 999;
+
+        setBoard(updated);
+        saveBoard(updated);
+        setLastId(entry.id);
+        setResult({ score, time: seconds, answers, rank });
+        setView("result");
+      }
+
+      function clearBoard() {
+        setBoard([]);
+        saveBoard([]);
+        setLastId(null);
+      }
+
+      return (
+        <div className="app">
+          <header className="header">
+            <button className="logo" onClick={() => setView("home")} aria-label="QuizMaster home">
+              <span className="logo-icon">Q</span> QuizMaster
+            </button>
+            <nav>
+              <button className="nav-link" onClick={() => setView("leaderboard")}>
+                Leaderboard
+              </button>
+            </nav>
+          </header>
+
+          <main className="main">
+            {view === "home" && (
+              <Home
+                defaultName={playerName}
+                onStart={startQuiz}
+                onLeaderboard={() => setView("leaderboard")}
+              />
+            )}
+            {view === "quiz" && (
+              <Quiz
+                key={quizKey}
+                questions={questions}
+                playerName={playerName}
+                onFinish={finishQuiz}
+                onQuit={() => setView("home")}
+              />
+            )}
+            {view === "result" && result && (
+              <Result
+                result={result}
+                questions={questions}
+                playerName={playerName}
+                onRestart={restartQuiz}
+                onLeaderboard={() => setView("leaderboard")}
+                onHome={() => setView("home")}
+              />
+            )}
+            {view === "leaderboard" && (
+              <Leaderboard
+                board={board}
+                highlightId={lastId}
+                onClear={clearBoard}
+                onStart={() => (playerName ? restartQuiz() : setView("home"))}
+                onHome={() => setView("home")}
+              />
+            )}
+          </main>
+
+          <footer className="footer">QuizMaster · Built with React</footer>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  </script>
+</body>
+</html>
